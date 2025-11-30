@@ -65,9 +65,6 @@ Automated test suite for unit and integration testing.
    
    Create a `.env` file in the backend directory:
    ```env
-   MONGODB_URI=mongodb+srv://your_user:your_password@cluster.mongodb.net/?appName=YourApp
-   DATABASE_NAME=db_maker
-   SCHEMAS_COLLECTION=schemas
    ALLOWED_ORIGINS=["http://localhost:3000"]
    ```
 
