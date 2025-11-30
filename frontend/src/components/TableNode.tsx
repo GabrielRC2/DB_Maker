@@ -5,7 +5,8 @@ import clsx from 'clsx';
 import { Table } from '../lib/schemaState';
 
 // Map types to icons
-const getTypeIcon = (type: string) => {
+const getTypeIcon = (type: string | undefined) => {
+    if (!type) return <Type size={12} className="text-gray-400" />;
     const t = type.toLowerCase();
     if (t.includes('int') || t.includes('serial')) return <Hash size={12} className="text-blue-500" />;
     if (t.includes('char') || t.includes('text')) return <Type size={12} className="text-green-500" />;
@@ -74,7 +75,7 @@ const TableNode = ({ data, selected }: NodeProps<TableNodeType>) => {
                             )}>{col.name}</span>
                         </div>
 
-                        <span className="text-xs text-gray-400 font-mono ml-2 shrink-0">{col.type}</span>
+                        <span className="text-xs text-gray-400 font-mono ml-2 shrink-0">{col.type || 'unknown'}</span>
 
                         {/* Connection Handles - Only visible on hover or selection */}
                         <Handle

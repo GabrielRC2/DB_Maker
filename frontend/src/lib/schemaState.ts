@@ -6,6 +6,11 @@ export type Column = {
     type: string;
     isPrimaryKey: boolean;
     isForeignKey: boolean;
+    nullable?: boolean;
+    unique?: boolean;
+    autoIncrement?: boolean;
+    defaultValue?: string;
+    comment?: string;
     references?: {
         table: string;
         column: string;
@@ -13,6 +18,7 @@ export type Column = {
 };
 
 export type Table = {
+    id?: string; // Unique identifier for React keys
     name: string;
     columns: Column[];
     position: { x: number; y: number };
@@ -32,18 +38,40 @@ interface SchemaState {
     tables: Table[];
     relationships: Relationship[];
     sql: string;
+    
+    // UI state
+    selectedTable: string | null;
+    
+    // Backend integration
+    currentSchemaId: string | null;
+    currentSchemaName: string;
+    saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+    availableSchemas: Array<{ id: string; name: string; updated_at: string }>;
 
     // Actions
     addTable: (table: Table) => void;
     updateTable: (name: string, updates: Partial<Table>) => void;
     removeTable: (name: string) => void;
     updateTablePosition: (name: string, position: { x: number; y: number }) => void;
+    selectTable: (name: string | null) => void;
+    
+    // Column actions
+    addColumn: (tableName: string, column: Column) => void;
+    updateColumn: (tableName: string, columnIndex: number, updates: Partial<Column>) => void;
+    removeColumn: (tableName: string, columnIndex: number) => void;
 
     addRelationship: (rel: Relationship) => void;
     removeRelationship: (id: string) => void;
 
     setSQL: (sql: string) => void;
     syncFromSQL: (sql: string) => void;
+    
+    // Backend actions
+    saveSchema: () => Promise<void>;
+    loadSchema: (schemaId: string) => Promise<void>;
+    loadSchemas: () => Promise<void>;
+    newSchema: (name?: string) => void;
+    setSchemaName: (name: string) => void;
 }
 
 // Helper to generate SQL from tables
@@ -129,53 +157,86 @@ const parseSQL = (sql: string): { tables: Table[], relationships: Relationship[]
     return { tables, relationships };
 };
 
+// Helper to generate unique ID
+const generateId = () => `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
 export const useSchemaStore = create<SchemaState>((set, get) => ({
-    tables: [
-        {
-            name: 'users',
-            position: { x: 100, y: 100 },
-            color: 'pink',
-            columns: [
-                { name: 'id', type: 'bigint', isPrimaryKey: true, isForeignKey: false },
-                { name: 'email', type: 'varchar', isPrimaryKey: false, isForeignKey: false },
-                { name: 'password_hash', type: 'varchar', isPrimaryKey: false, isForeignKey: false },
-                { name: 'created_at', type: 'timestamp', isPrimaryKey: false, isForeignKey: false },
-            ]
-        },
-        {
-            name: 'posts',
-            position: { x: 500, y: 150 },
-            color: 'blue',
-            columns: [
-                { name: 'id', type: 'bigint', isPrimaryKey: true, isForeignKey: false },
-                { name: 'user_id', type: 'bigint', isPrimaryKey: false, isForeignKey: true, references: { table: 'users', column: 'id' } },
-                { name: 'title', type: 'varchar', isPrimaryKey: false, isForeignKey: false },
-                { name: 'content', type: 'text', isPrimaryKey: false, isForeignKey: false },
-                { name: 'published', type: 'boolean', isPrimaryKey: false, isForeignKey: false },
-            ]
-        }
-    ],
+    tables: [],
     relationships: [],
     sql: '',
+    selectedTable: null,
+    currentSchemaId: null,
+    currentSchemaName: 'Untitled Schema',
+    saveStatus: 'idle',
+    availableSchemas: [],
 
     addTable: (table) => set((state) => {
-        const newTables = [...state.tables, table];
+        const tableWithId = { ...table, id: table.id || generateId() };
+        const newTables = [...state.tables, tableWithId];
         return { tables: newTables, sql: generateSQL(newTables, state.relationships) };
     }),
 
     updateTable: (name, updates) => set((state) => {
         const newTables = state.tables.map(t => t.name === name ? { ...t, ...updates } : t);
-        return { tables: newTables, sql: generateSQL(newTables, state.relationships) };
+        // If table name is being updated and it's the selected table, update selectedTable too
+        const newSelectedTable = updates.name && state.selectedTable === name 
+            ? updates.name 
+            : state.selectedTable;
+        return { 
+            tables: newTables, 
+            sql: generateSQL(newTables, state.relationships),
+            selectedTable: newSelectedTable
+        };
     }),
 
     removeTable: (name) => set((state) => {
         const newTables = state.tables.filter(t => t.name !== name);
+        return { 
+            tables: newTables, 
+            sql: generateSQL(newTables, state.relationships),
+            selectedTable: state.selectedTable === name ? null : state.selectedTable
+        };
+    }),
+
+    updateTablePosition: (nameOrId, position) => set((state) => ({
+        tables: state.tables.map(t => 
+            (t.name === nameOrId || t.id === nameOrId) ? { ...t, position } : t
+        )
+    })),
+
+    selectTable: (name) => set({ selectedTable: name }),
+
+    addColumn: (tableName, column) => set((state) => {
+        const newTables = state.tables.map(t => 
+            t.name === tableName 
+                ? { ...t, columns: [...t.columns, column] }
+                : t
+        );
         return { tables: newTables, sql: generateSQL(newTables, state.relationships) };
     }),
 
-    updateTablePosition: (name, position) => set((state) => ({
-        tables: state.tables.map(t => t.name === name ? { ...t, position } : t)
-    })),
+    updateColumn: (tableName, columnIndex, updates) => set((state) => {
+        const newTables = state.tables.map(t =>
+            t.name === tableName
+                ? {
+                    ...t,
+                    columns: t.columns.map((col, idx) =>
+                        idx === columnIndex ? { ...col, ...updates } : col
+                    )
+                }
+                : t
+        );
+        return { tables: newTables, sql: generateSQL(newTables, state.relationships) };
+    }),
+
+    removeColumn: (tableName, columnIndex) => set((state) => {
+        const newTables = state.tables.map(t =>
+            t.name === tableName
+                ? { ...t, columns: t.columns.filter((_, idx) => idx !== columnIndex) }
+                : t
+        );
+        return { tables: newTables, sql: generateSQL(newTables, state.relationships) };
+    }),
 
     addRelationship: (rel) => set((state) => {
         // Check for N:N logic here? Or in the component?
@@ -202,5 +263,122 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
         });
 
         set({ tables: mergedTables, relationships, sql });
+    },
+
+    // Backend integration actions
+    saveSchema: async () => {
+        const state = get();
+        set({ saveStatus: 'saving' });
+        
+        try {
+            const { schemaApi, frontendToBackend } = await import('./api');
+            
+            const schemaData = frontendToBackend(
+                state.tables,
+                state.relationships,
+                state.currentSchemaName,
+                'Created with DB Maker'
+            );
+            
+            console.log('Sending schema data:', JSON.stringify(schemaData, null, 2));
+
+            if (state.currentSchemaId) {
+                // Update existing schema
+                const updated = await schemaApi.updateSchema(state.currentSchemaId, schemaData);
+                set({ 
+                    saveStatus: 'saved',
+                    currentSchemaId: updated.id,
+                    currentSchemaName: updated.name
+                });
+            } else {
+                // Create new schema
+                const created = await schemaApi.createSchema(schemaData);
+                set({ 
+                    saveStatus: 'saved',
+                    currentSchemaId: created.id,
+                    currentSchemaName: created.name
+                });
+            }
+            
+            // Refresh available schemas list
+            get().loadSchemas();
+            
+            // Reset to idle after 2 seconds
+            setTimeout(() => {
+                if (get().saveStatus === 'saved') {
+                    set({ saveStatus: 'idle' });
+                }
+            }, 2000);
+        } catch (error) {
+            console.error('Failed to save schema:', error);
+            set({ saveStatus: 'error' });
+            
+            // Reset to idle after 3 seconds
+            setTimeout(() => {
+                if (get().saveStatus === 'error') {
+                    set({ saveStatus: 'idle' });
+                }
+            }, 3000);
+        }
+    },
+
+    loadSchema: async (schemaId: string) => {
+        try {
+            const { schemaApi, backendToFrontend } = await import('./api');
+            const schema = await schemaApi.getSchema(schemaId);
+            const { tables, relationships, name, id } = backendToFrontend(schema);
+            
+            // Add unique IDs to tables if they don't have them
+            const tablesWithIds = tables.map(t => ({ ...t, id: t.id || generateId() }));
+            
+            set({
+                tables: tablesWithIds,
+                relationships,
+                currentSchemaId: id,
+                currentSchemaName: name,
+                sql: generateSQL(tablesWithIds, relationships),
+                saveStatus: 'idle'
+            });
+            
+            // Save last opened schema to localStorage
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('lastOpenedSchemaId', id);
+            }
+        } catch (error) {
+            console.error('Failed to load schema:', error);
+            set({ saveStatus: 'error' });
+        }
+    },
+
+    loadSchemas: async () => {
+        try {
+            const { schemaApi } = await import('./api');
+            const schemas = await schemaApi.listSchemas();
+            
+            set({
+                availableSchemas: schemas.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    updated_at: s.updated_at
+                }))
+            });
+        } catch (error) {
+            console.error('Failed to load schemas:', error);
+        }
+    },
+
+    newSchema: (name = 'Untitled Schema') => {
+        set({
+            tables: [],
+            relationships: [],
+            sql: '',
+            currentSchemaId: null,
+            currentSchemaName: name,
+            saveStatus: 'idle'
+        });
+    },
+
+    setSchemaName: (name: string) => {
+        set({ currentSchemaName: name });
     }
 }));

@@ -49,7 +49,7 @@ function CanvasContent() {
     // Sync from store to local nodes (initial load or external updates)
     useEffect(() => {
         const flowNodes = tables.map(t => ({
-            id: t.name,
+            id: t.id || t.name, // Use unique ID as node ID
             type: 'table' as const,
             position: t.position,
             data: { ...t, label: t.name }, // Pass full table object as data

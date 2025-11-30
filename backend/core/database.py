@@ -1,22 +1,33 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
-from app.core.config import settings
+from pymongo.asynchronous.mongo_client import AsyncMongoClient
+from core.config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=True)
+class Database:
+    client: AsyncMongoClient = None
+    
+    @classmethod
+    async def connect_db(cls):
+        """Connect to MongoDB"""
+        cls.client = AsyncMongoClient(settings.MONGODB_URI)
+        # Test connection
+        await cls.client.admin.command('ping')
+        print(f"✅ Connected to MongoDB: {settings.DATABASE_NAME}")
+    
+    @classmethod
+    async def close_db(cls):
+        """Close MongoDB connection"""
+        if cls.client:
+            cls.client.close()
+            print("❌ Closed MongoDB connection")
+    
+    @classmethod
+    def get_database(cls):
+        """Get database instance"""
+        return cls.client[settings.DATABASE_NAME]
+    
+    @classmethod
+    def get_collection(cls, collection_name: str):
+        """Get collection from database"""
+        return cls.get_database()[collection_name]
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
-
-Base = declarative_base()
-
-async def get_db():
-    async with SessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+# Singleton instance
+db = Database()

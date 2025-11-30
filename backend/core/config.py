@@ -1,15 +1,27 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from functools import lru_cache
+from typing import List
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Schema Designer API"
-    VERSION: str = "0.1.0"
+    APP_NAME: str = "DB Maker API"
+    VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     
-    # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/schema_designer"
+    # MongoDB
+    MONGODB_URI: str
+    DATABASE_NAME: str = "db_maker"
+    
+    # Collections
+    SCHEMAS_COLLECTION: str = "schemas"
+    
+    # CORS
+    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
     
     class Config:
         env_file = ".env"
 
-settings = Settings()
+@lru_cache()
+def get_settings():
+    return Settings()
+
+settings = get_settings()
